@@ -42,15 +42,16 @@ func resizeHandler() http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		log.Println("[DEBUG] Hit convert")
 		dimension := parseDimension(mux.Vars(req)["dimension"])
-		sourcePath, err := downloadSource(mux.Vars(req)["source"])
+		source, err := downloadSource(mux.Vars(req)["source"])
 		if err != nil {
 			log.Printf("[ERROR] Download source error: %s", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
-		log.Printf("[DEBUG]\nSource: %s [DEBUG]\nDimension: %s", sourcePath, dimension)
-		cmd := exec.Command("ffmpeg", "-i", sourcePath, "-vf", dimension, "small.gif")
+		cmd := exec.Command("ffmpeg", "-i", "-", "-vf", dimension, "-f", "gif", "-")
+
+		cmd.Stdin = io.Reader(source)
 
 		var out bytes.Buffer
 		cmd.Stdout = &out
@@ -64,26 +65,28 @@ func resizeHandler() http.HandlerFunc {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+		output := out.String()
+		reader := strings.NewReader(output)
+		imageLen := reader.Len()
+		log.Printf("Outcome file len: %d", reader.Len())
+		w.Header().Set("Content-Type", "image/gif")
+		w.Header().Set("Content-Length", strconv.Itoa(imageLen))
 		w.WriteHeader(http.StatusOK)
+		io.Copy(w, reader)
 	})
 }
 
-func downloadSource(sourceUrl string) (string, error) {
+func downloadSource(sourceUrl string) (*bytes.Buffer, error) {
 	resp, err := http.Get(sourceUrl)
 	if err != nil {
-		return "", err
+		return new(bytes.Buffer), err
 	}
 	defer resp.Body.Close()
 
-	filepath := "/tmp/toconvert.gif"
-	out, err := os.Create(filepath) // TODO Delete file after convertion
-	if err != nil {
-		return "", err
-	}
-	defer out.Close()
+	var out bytes.Buffer
 
-	_, err = io.Copy(out, resp.Body)
-	return filepath, nil
+	_, err = out.ReadFrom(resp.Body)
+	return &out, nil
 }
 
 func parseDimension(dim string) string {
