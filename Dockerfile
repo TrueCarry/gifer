@@ -19,6 +19,7 @@ EXPOSE 8080 8080
 
 COPY go.mod /gifer
 COPY main.go /gifer
+
 WORKDIR /gifer
 
 ENTRYPOINT ["go", "run", "main.go"]
