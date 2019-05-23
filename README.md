@@ -25,9 +25,9 @@ curl -I 'http://localhost:8080/unsafe/0x400/filters:gifv(webm)/https://66.media.
 
 ## Formats
 
-filters:gifv(webm) -> gif
-filters:format(jpeg) -> jpg
-filters:format(png) -> jpg
+* `filters:gifv(webm) -> gif`
+* `filters:format(jpeg) -> jpg`
+* `filters:format(png) -> jpg`
 
 ## Run
 
