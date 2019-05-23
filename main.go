@@ -3,8 +3,10 @@ package main
 import (
 	"bytes"
 	"fmt"
+	"github.com/cloudfoundry/bytefmt"
 	"github.com/gorilla/mux"
 	"io"
+	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -35,23 +37,37 @@ func main() {
 	log.Fatal(srv.ListenAndServe())
 }
 
-// If we'd like to keep the aspect ratio,
-// we need to specify only one component, either width or height, and set the other component to -1.
-// ffmpeg -i big.gif -vf scale=320:-1 small.gif
 func resizeHandler() http.HandlerFunc {
 	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 		log.Println("[DEBUG] Hit convert")
-		dimension := parseDimension(mux.Vars(req)["dimension"])
-		source, err := downloadSource(mux.Vars(req)["source"])
+		var (
+			dimension string
+			extension string
+			size      string
+			format    string
+			err       error
+		)
+		dimension = parseDimension(mux.Vars(req)["dimension"])
+		if format, extension, err = parseFormat(mux.Vars(req)["filters"]); err != nil {
+			log.Printf("[ERROR] Bad format: %s", err)
+			w.WriteHeader(http.StatusInternalServerError)
+			return
+		}
+
+		sourcePath, size, err := downloadSource(mux.Vars(req)["source"], extension)
+		defer os.Remove(sourcePath)
 		if err != nil {
 			log.Printf("[ERROR] Download source error: %s", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
+		log.Printf("[DEBUG] Process file -> Extension: %s / Dimension: %s", extension, dimension)
 
-		cmd := exec.Command("ffmpeg", "-i", "-", "-vf", dimension, "-f", "gif", "-")
+		sourceSize, _ := strconv.ParseInt(size, 10, 64)
 
-		cmd.Stdin = io.Reader(source)
+		log.Printf("[DEBUG] File resized length before: %s", bytefmt.ByteSize(uint64(sourceSize)))
+
+		cmd := exec.Command("ffmpeg", "-i", sourcePath, "-vf", dimension, "-f", format, "-")
 
 		var out bytes.Buffer
 		cmd.Stdout = &out
@@ -68,25 +84,44 @@ func resizeHandler() http.HandlerFunc {
 		output := out.String()
 		reader := strings.NewReader(output)
 		imageLen := reader.Len()
-		log.Printf("Outcome file len: %d", reader.Len())
-		w.Header().Set("Content-Type", "image/gif")
+
+		log.Printf("[DEBUG] File resized length after: %s", bytefmt.ByteSize(uint64(reader.Len())))
+
+		w.Header().Set("Content-Type", "image/"+extension)
 		w.Header().Set("Content-Length", strconv.Itoa(imageLen))
 		w.WriteHeader(http.StatusOK)
 		io.Copy(w, reader)
 	})
 }
 
-func downloadSource(sourceUrl string) (*bytes.Buffer, error) {
+func parseFormat(format string) (string, string, error) {
+	switch format {
+	case "filters:gifv(webm)":
+		return "gif", "gif", nil
+	case "filters:format(jpeg)", "filters:format(png)":
+		return "singlejpeg", "jpg", nil
+	default:
+		return "", "", fmt.Errorf("bad format")
+	}
+	return "", "", fmt.Errorf("bad format")
+}
+
+func downloadSource(sourceUrl, extension string) (string, string, error) {
 	resp, err := http.Get(sourceUrl)
 	if err != nil {
-		return new(bytes.Buffer), err
+		return "", "", err
 	}
 	defer resp.Body.Close()
 
-	var out bytes.Buffer
+	size := resp.Header.Get("Content-Length")
 
-	_, err = out.ReadFrom(resp.Body)
-	return &out, nil
+	file, err := ioutil.TempFile("/tmp", "*."+extension)
+	if err != nil {
+		return "", "", err
+	}
+
+	io.Copy(file, resp.Body)
+	return file.Name(), size, nil
 }
 
 func parseDimension(dim string) string {

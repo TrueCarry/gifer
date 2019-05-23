@@ -1,3 +1,5 @@
+github.com/cloudfoundry/bytefmt v0.0.0-20180906201452-2aa6f33b730c h1:zE9z4EZZwJTjOi9Q9WYM/81BuwOKyjhHagiNUDhDdnI=
+github.com/cloudfoundry/bytefmt v0.0.0-20180906201452-2aa6f33b730c/go.mod h1:4oo6ExqTPaBVBwSm814h6UO5Fels1kN2KvpNscaCcS0=
 github.com/gorilla/mux v1.7.2 h1:zoNxOV7WjqXptQOVngLmcSQgXmgk4NMz1HibBchjl/I=
 github.com/gorilla/mux v1.7.2/go.mod h1:1lud6UwP+6orDFRuTfBEV8e9/aOM/c4fVVCaMa2zaAs=
 golang.org/x/image v0.0.0-20180926015637-991ec62608f3 h1:5IfA9fqItkh2alJW94tvQk+6+RF9MW2q9DzwE8DBddQ=
