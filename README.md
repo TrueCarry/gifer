@@ -2,7 +2,7 @@
 
 ## Description
 
-`gifer` resize GIF image.
+`gifer` - Docker image with REST API for image manipulation by ffmpeg.
 
 This service implement the same API as [thumbor](https://github.com/thumbor/thumbor).
 
