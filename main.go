@@ -76,8 +76,7 @@ func resizeHandler() http.HandlerFunc {
 			"-y",  // overwrite
 			// "-trans_color", "ffffff", // TODO read from input
 			"-i", sourcePath, // set input
-			// "-vf", dimension,
-			"-filter_complex", "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+			"-vf", dimension,
 			"-pix_fmt", "yuv420p",
 			// "-movflags", "frag_keyframe",
 			"-movflags", "faststart",
@@ -146,14 +145,15 @@ func parseDimension(dim string) string {
 	w, _ := strconv.ParseInt(widht, 10, 64)
 	h, _ := strconv.ParseInt(height, 10, 64)
 	var dimension string
-	if w > 0 && h == 0 {
-		dimension = fmt.Sprintf("scale=%d:-1", w)
-	}
-	if h > 0 && w == 0 {
-		dimension = fmt.Sprintf("scale=-1:%d", h)
-	}
-	if w > 0 && h > 0 {
-		dimension = fmt.Sprintf("scale=%d:%d", w, h)
+	switch {
+	case w > 0 && h == 0:
+		dimension = fmt.Sprintf("scale=trunc(%d/2)*2:-2", w)
+	case h > 0 && w == 0:
+		dimension = fmt.Sprintf("scale=-2:trunc(%d/2)*2", h)
+	case w > 0 && h > 0:
+		dimension = fmt.Sprintf("scale=w=%v:h=%v:force_original_aspect_ratio=increase,crop=%v:%v", w, h, w, h)
+	default:
+		dimension = "scale=trunc(iw/2)*2:trunc(ih/2)*2"
 	}
 	return dimension
 }
