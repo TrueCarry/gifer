@@ -3,8 +3,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"github.com/cloudfoundry/bytefmt"
-	"github.com/gorilla/mux"
 	"io"
 	"io/ioutil"
 	"log"
@@ -14,6 +12,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/cloudfoundry/bytefmt"
+	"github.com/gorilla/mux"
 )
 
 func main() {
@@ -42,32 +43,46 @@ func resizeHandler() http.HandlerFunc {
 		log.Println("[DEBUG] Hit convert")
 		var (
 			dimension string
-			extension string
 			size      string
 			format    string
 			err       error
 		)
 		dimension = parseDimension(mux.Vars(req)["dimension"])
-		if format, extension, err = parseFormat(mux.Vars(req)["filters"]); err != nil {
+		if format, err = parseFormat(mux.Vars(req)["filters"]); err != nil {
 			log.Printf("[ERROR] Bad format: %s", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 
-		sourcePath, size, err := downloadSource(mux.Vars(req)["source"], extension)
+		sourcePath, size, err := downloadSource(mux.Vars(req)["source"])
 		defer os.Remove(sourcePath)
 		if err != nil {
 			log.Printf("[ERROR] Download source error: %s", err)
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		log.Printf("[DEBUG] Process file -> Extension: %s / Dimension: %s", extension, dimension)
+		log.Printf("[DEBUG] Process file -> Extension: x / Dimension: %s", dimension)
 
 		sourceSize, _ := strconv.ParseInt(size, 10, 64)
 
 		log.Printf("[DEBUG] File resized length before: %s", bytefmt.ByteSize(uint64(sourceSize)))
 
-		cmd := exec.Command("ffmpeg", "-i", sourcePath, "-vf", dimension, "-f", format, "-")
+		outfile, err := ioutil.TempFile("", "res")
+		// outfile.Close()
+		defer os.Remove(outfile.Name())
+
+		cmd := exec.Command("ffmpeg",
+			"-an", // disable audio
+			"-y",  // overwrite
+			// "-trans_color", "ffffff", // TODO read from input
+			"-i", sourcePath, // set input
+			"-vf", dimension,
+			"-pix_fmt", "yuv420p",
+			// "-movflags", "frag_keyframe",
+			"-movflags", "faststart",
+			"-f", format,
+			outfile.Name(),
+		)
 
 		var out bytes.Buffer
 		cmd.Stdout = &out
@@ -81,33 +96,33 @@ func resizeHandler() http.HandlerFunc {
 			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
-		output := out.String()
-		reader := strings.NewReader(output)
-		imageLen := reader.Len()
 
-		log.Printf("[DEBUG] File resized length after: %s", bytefmt.ByteSize(uint64(reader.Len())))
+		output, _ := ioutil.ReadAll(outfile)
+		imageLen := len(output)
 
-		w.Header().Set("Content-Type", "image/"+extension)
+		log.Printf("[DEBUG] File resized length after: %s", bytefmt.ByteSize(uint64(imageLen)))
+
+		w.Header().Set("X-Filename", "video."+format)
+		w.Header().Set("Content-Type", "video/"+format)
 		w.Header().Set("Content-Length", strconv.Itoa(imageLen))
 		w.WriteHeader(http.StatusOK)
-		io.Copy(w, reader)
+		w.Write(output)
 	})
 }
 
-func parseFormat(format string) (string, string, error) {
+func parseFormat(format string) (string, error) {
 	switch format {
+	case "filters:gifv(mp4)":
+		return "mp4", nil
 	case "filters:gifv(webm)":
-		return "gif", "gif", nil
-	case "filters:format(jpeg)", "filters:format(png)":
-		return "singlejpeg", "jpg", nil
+		return "webm", nil
 	default:
-		return "", "", fmt.Errorf("bad format")
+		return "", fmt.Errorf("bad format")
 	}
-	return "", "", fmt.Errorf("bad format")
 }
 
-func downloadSource(sourceUrl, extension string) (string, string, error) {
-	resp, err := http.Get(sourceUrl)
+func downloadSource(sourceURL string) (string, string, error) {
+	resp, err := http.Get(sourceURL)
 	if err != nil {
 		return "", "", err
 	}
@@ -115,13 +130,13 @@ func downloadSource(sourceUrl, extension string) (string, string, error) {
 
 	size := resp.Header.Get("Content-Length")
 
-	file, err := ioutil.TempFile("/tmp", "*."+extension)
+	file, err := ioutil.TempFile("", "inp")
 	if err != nil {
 		return "", "", err
 	}
 
-	io.Copy(file, resp.Body)
-	return file.Name(), size, nil
+	_, err = io.Copy(file, resp.Body)
+	return file.Name(), size, err
 }
 
 func parseDimension(dim string) string {
@@ -130,14 +145,15 @@ func parseDimension(dim string) string {
 	w, _ := strconv.ParseInt(widht, 10, 64)
 	h, _ := strconv.ParseInt(height, 10, 64)
 	var dimension string
-	if w > 0 && h == 0 {
-		dimension = fmt.Sprintf("scale=%d:-1", w)
-	}
-	if h > 0 && w == 0 {
-		dimension = fmt.Sprintf("scale=-1:%d", h)
-	}
-	if w > 0 && h > 0 {
-		dimension = fmt.Sprintf("scale=%d:%d", w, h)
+	switch {
+	case w > 0 && h == 0:
+		dimension = fmt.Sprintf("scale=trunc(%d/2)*2:-2", w)
+	case h > 0 && w == 0:
+		dimension = fmt.Sprintf("scale=-2:trunc(%d/2)*2", h)
+	case w > 0 && h > 0:
+		dimension = fmt.Sprintf("scale=w=%v:h=%v:force_original_aspect_ratio=increase,crop=%v:%v", w, h, w, h)
+	default:
+		dimension = "scale=trunc(iw/2)*2:trunc(ih/2)*2"
 	}
 	return dimension
 }
