@@ -84,6 +84,13 @@ func resizeHandler() http.HandlerFunc {
 			"-pix_fmt", "yuv420p",
 			// "-movflags", "frag_keyframe",
 			"-movflags", "faststart",
+			// "-qmin", "10", // the minimum quantizer (default 4, range 0–63), lower - better quality --- VP9 only
+			// "-qmax", "42", // the maximum quantizer (default 63, range qmin–63) higher - lower quality --- VP9 only
+			"-crf", "23", // enable constant bitrate(0-51) lower - better
+			"-preset", "medium", // quality preset
+			"-maxrate", "500k", // max bitrate. higher - better
+			"-profile:v", "baseline", // https://trac.ffmpeg.org/wiki/Encode/H.264 - compatibility level
+			"-level", "4.0", // ^^^
 			"-f", format,
 			outfile.Name(),
 		)
