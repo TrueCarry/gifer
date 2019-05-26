@@ -68,6 +68,10 @@ func resizeHandler() http.HandlerFunc {
 		log.Printf("[DEBUG] File resized length before: %s", bytefmt.ByteSize(uint64(sourceSize)))
 
 		outfile, err := ioutil.TempFile("", "res")
+		if err != nil {
+			log.Printf("[ERROR] Create Outfile error %v", err)
+			return
+		}
 		// outfile.Close()
 		defer os.Remove(outfile.Name())
 
@@ -106,7 +110,10 @@ func resizeHandler() http.HandlerFunc {
 		w.Header().Set("Content-Type", "video/"+format)
 		w.Header().Set("Content-Length", strconv.Itoa(imageLen))
 		w.WriteHeader(http.StatusOK)
-		w.Write(output)
+		_, err = w.Write(output)
+		if err != nil {
+			log.Printf("[ERROR] Output write error %v", err)
+		}
 	})
 }
 
