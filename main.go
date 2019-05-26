@@ -68,6 +68,10 @@ func resizeHandler() http.HandlerFunc {
 		log.Printf("[DEBUG] File resized length before: %s", bytefmt.ByteSize(uint64(sourceSize)))
 
 		outfile, err := ioutil.TempFile("", "res")
+		if err != nil {
+			log.Printf("[ERROR] Create Outfile error %v", err)
+			return
+		}
 		// outfile.Close()
 		defer os.Remove(outfile.Name())
 
@@ -80,6 +84,13 @@ func resizeHandler() http.HandlerFunc {
 			"-pix_fmt", "yuv420p",
 			// "-movflags", "frag_keyframe",
 			"-movflags", "faststart",
+			// "-qmin", "10", // the minimum quantizer (default 4, range 0–63), lower - better quality --- VP9 only
+			// "-qmax", "42", // the maximum quantizer (default 63, range qmin–63) higher - lower quality --- VP9 only
+			"-crf", "23", // enable constant bitrate(0-51) lower - better
+			"-preset", "medium", // quality preset
+			"-maxrate", "500k", // max bitrate. higher - better
+			"-profile:v", "baseline", // https://trac.ffmpeg.org/wiki/Encode/H.264 - compatibility level
+			"-level", "4.0", // ^^^
 			"-f", format,
 			outfile.Name(),
 		)
@@ -106,7 +117,10 @@ func resizeHandler() http.HandlerFunc {
 		w.Header().Set("Content-Type", "video/"+format)
 		w.Header().Set("Content-Length", strconv.Itoa(imageLen))
 		w.WriteHeader(http.StatusOK)
-		w.Write(output)
+		_, err = w.Write(output)
+		if err != nil {
+			log.Printf("[ERROR] Output write error %v", err)
+		}
 	})
 }
 
