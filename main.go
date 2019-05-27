@@ -13,8 +13,11 @@ import (
 	"strings"
 	"time"
 
-	"github.com/cloudfoundry/bytefmt"
 	"github.com/gorilla/mux"
+)
+
+const (
+	MB = 1 << 20
 )
 
 func main() {
@@ -26,7 +29,8 @@ func main() {
 
 	log.Printf("Start gifer server on %s", port)
 	r.SkipClean(true)
-	r.HandleFunc(`/unsafe/{dimension:\d+x\d+}/{filters:filters:\w{3,}\(.*\)}/{source:.*}`, resizeHandler())
+	r.HandleFunc(`/unsafe/{dimension:\d+x\d+}/{filters:filters:\w{3,}\(.*\)}/{source:.*}`, resizeFromURLHandler()).Methods("GET")
+	r.HandleFunc(`/unsafe/{dimension:\d+x\d+}/{filters:filters:\w{3,}\(.*\)}`, resizeFromFileHandler()).Methods("POST")
 	r.HandleFunc("/version", versionHandler())
 	srv := &http.Server{
 		Handler:      r,
@@ -38,90 +42,18 @@ func main() {
 	log.Fatal(srv.ListenAndServe())
 }
 
-func resizeHandler() http.HandlerFunc {
-	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
-		log.Println("[DEBUG] Hit convert")
-		var (
-			dimension string
-			size      string
-			format    string
-			err       error
-		)
-		dimension = parseDimension(mux.Vars(req)["dimension"])
-		if format, err = parseFormat(mux.Vars(req)["filters"]); err != nil {
-			log.Printf("[ERROR] Bad format: %s", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		sourcePath, size, err := downloadSource(mux.Vars(req)["source"])
-		defer os.Remove(sourcePath)
-		if err != nil {
-			log.Printf("[ERROR] Download source error: %s", err)
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-		log.Printf("[DEBUG] Process file -> Extension: x / Dimension: %s", dimension)
-
-		sourceSize, _ := strconv.ParseInt(size, 10, 64)
-
-		log.Printf("[DEBUG] File resized length before: %s", bytefmt.ByteSize(uint64(sourceSize)))
-
-		outfile, err := ioutil.TempFile("", "res")
-		if err != nil {
-			log.Printf("[ERROR] Create Outfile error %v", err)
-			return
-		}
-		// outfile.Close()
-		defer os.Remove(outfile.Name())
-
-		cmd := exec.Command("ffmpeg",
-			"-an", // disable audio
-			"-y",  // overwrite
-			// "-trans_color", "ffffff", // TODO read from input
-			"-i", sourcePath, // set input
-			"-vf", dimension,
-			"-pix_fmt", "yuv420p",
-			// "-movflags", "frag_keyframe",
-			"-movflags", "faststart",
-			// "-qmin", "10", // the minimum quantizer (default 4, range 0–63), lower - better quality --- VP9 only
-			// "-qmax", "42", // the maximum quantizer (default 63, range qmin–63) higher - lower quality --- VP9 only
-			"-crf", "23", // enable constant bitrate(0-51) lower - better
-			"-preset", "medium", // quality preset
-			"-maxrate", "500k", // max bitrate. higher - better
-			"-profile:v", "baseline", // https://trac.ffmpeg.org/wiki/Encode/H.264 - compatibility level
-			"-level", "4.0", // ^^^
-			"-f", format,
-			outfile.Name(),
-		)
-
-		var out bytes.Buffer
-		cmd.Stdout = &out
-
-		var errout bytes.Buffer
-		cmd.Stderr = &errout
-
-		err = cmd.Run()
-		if err != nil {
-			log.Printf("[ERROR] FFmpeg command : %v, %v, %v\n", err, out.String(), errout.String())
-			w.WriteHeader(http.StatusInternalServerError)
-			return
-		}
-
-		output, _ := ioutil.ReadAll(outfile)
-		imageLen := len(output)
-
-		log.Printf("[DEBUG] File resized length after: %s", bytefmt.ByteSize(uint64(imageLen)))
-
-		w.Header().Set("X-Filename", "video."+format)
-		w.Header().Set("Content-Type", "video/"+format)
-		w.Header().Set("Content-Length", strconv.Itoa(imageLen))
-		w.WriteHeader(http.StatusOK)
-		_, err = w.Write(output)
-		if err != nil {
-			log.Printf("[ERROR] Output write error %v", err)
-		}
-	})
+func parseParams(req *http.Request) (string, string, error) {
+	var (
+		dimension string
+		format    string
+		err       error
+	)
+	dimension = parseDimension(mux.Vars(req)["dimension"])
+	if format, err = parseFormat(mux.Vars(req)["filters"]); err != nil {
+		log.Printf("[ERROR] Bad format: %s", err)
+		return "", "", err
+	}
+	return dimension, format, nil
 }
 
 func parseFormat(format string) (string, error) {
