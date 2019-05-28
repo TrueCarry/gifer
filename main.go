@@ -3,8 +3,6 @@ package main
 import (
 	"bytes"
 	"fmt"
-	"io"
-	"io/ioutil"
 	"log"
 	"net/http"
 	"os"
@@ -65,24 +63,6 @@ func parseFormat(format string) (string, error) {
 	default:
 		return "", fmt.Errorf("bad format")
 	}
-}
-
-func downloadSource(sourceURL string) (string, string, error) {
-	resp, err := http.Get(sourceURL)
-	if err != nil {
-		return "", "", err
-	}
-	defer resp.Body.Close()
-
-	size := resp.Header.Get("Content-Length")
-
-	file, err := ioutil.TempFile("", "inp")
-	if err != nil {
-		return "", "", err
-	}
-
-	_, err = io.Copy(file, resp.Body)
-	return file.Name(), size, err
 }
 
 func parseDimension(dim string) string {
